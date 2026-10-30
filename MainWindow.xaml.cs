@@ -127,14 +127,14 @@ public partial class MainWindow : Window
         Resumen.Text = filas.Count == 1 ? "1 departamento" : $"{filas.Count} departamentos";
         if (nuevos > 0 && config.Vista != "Nuevos") Resumen.Text += nuevos == 1 ? " · 1 nuevo" : $" · {nuevos} nuevos";
         Vacio.Text = filas.Count > 0 ? "" : avisos.Count == 0
-            ? "Elige los distritos y el precio, y pulsa Buscar.\nDepas abre su propio Chrome para buscar en Marketplace, Adondevivir y Urbania."
+            ? "Elige los distritos y el precio, y pulsa Buscar.\nDepas busca con un Chrome sin ventana en Marketplace, los grupos de Facebook y once portales."
             : "Nada con estos filtros. Prueba con más distritos, «1 o más» dormitorios o un precio más amplio (el precio se vuelve a buscar con Buscar).";
     }
 
     void MostrarSesion(bool? sesion) => Sesion.Text = sesion switch
     {
         true => "Facebook: con sesión en el Chrome de Depas.",
-        false => "Facebook: sin sesión. Marketplace muestra menos avisos; entra una vez y queda guardado.",
+        false => "Facebook: sin sesión. Marketplace trae menos avisos y los grupos no se buscan; entra una vez y queda guardado.",
         null => "Facebook: se revisa la sesión al buscar.",
     };
 
@@ -175,18 +175,53 @@ public partial class MainWindow : Window
             busqueda = null;
             BotonBuscar.Content = "Buscar";
             Refrescar();
+            await Chrome.CerrarSiSinVentana();
         }
     }
 
+    /// <summary>
+    /// Lo único que abre una ventana de Chrome: entrar a Facebook. Mira cada 3 segundos si ya hay sesión y,
+    /// cuando la hay, la guarda y cierra esa ventana; las búsquedas siguen sin ventanas.
+    /// </summary>
     async void Facebook_Click(object sender, RoutedEventArgs e)
     {
+        // Para abrir la ventana hay que cerrar el Chrome sin ventana, y eso cortaría la búsqueda.
+        if (busqueda != null)
+        {
+            Sesion.Text = "Espera a que termine la búsqueda para entrar a Facebook.";
+            return;
+        }
         try
         {
-            var pestana = await Chrome.AbrirPestana("https://www.facebook.com/marketplace/", alFrente: true, CancellationToken.None);
+            BotonFacebook.IsEnabled = false;
+            var pestana = await Chrome.AbrirVentana("https://www.facebook.com/login/?next=https%3A%2F%2Fwww.facebook.com%2Fmarketplace%2F", CancellationToken.None);
             await pestana.Soltar();
-            Sesion.Text = "Inicia sesión en la ventana de Chrome que se abrió. Al terminar, vuelve y pulsa Buscar.";
+            Sesion.Text = "Entra a Facebook en la ventana de Chrome que se abrió. Se cierra sola cuando termines.";
+            for (var i = 0; i < 400; i++)
+            {
+                await Task.Delay(3000);
+                var sesion = await Chrome.SesionFacebook(CancellationToken.None);
+                if (sesion is null) break;
+                if (sesion != true) continue;
+                config.SesionFacebook = true;
+                Almacen.Guardar(config);
+                Sesion.Text = "Listo: la sesión de Facebook quedó guardada. Cierro esa ventana…";
+                await Task.Delay(4000);
+                await Chrome.Cerrar();
+                break;
+            }
+            MostrarSesion(config.SesionFacebook);
         }
         catch (Exception ex) { Sesion.Text = ex.Message; }
+        finally { BotonFacebook.IsEnabled = true; }
+    }
+
+    /// <summary>Si se cierra la app a mitad de una búsqueda, no queda un Chrome sin ventana dando vueltas.</summary>
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        busqueda?.Cancel();
+        Task.Run(Chrome.CerrarSiSinVentana).Wait(TimeSpan.FromSeconds(4));
+        base.OnClosing(e);
     }
 
     static Fila? FilaDe(object sender) => (sender as FrameworkElement)?.DataContext as Fila;

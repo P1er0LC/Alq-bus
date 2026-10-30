@@ -8,16 +8,27 @@ namespace Depas.Nucleo;
 /// El Chrome de Depas: el Chrome instalado, con un perfil propio en la carpeta de datos.
 /// Desde Chrome 136 no se puede controlar el perfil de todos los días, así que en este se inicia sesión
 /// en Facebook una vez y la sesión queda guardada.
+/// Las búsquedas van en un Chrome sin ventana que se cierra al terminar; la ventana solo se abre para entrar a Facebook.
 /// </summary>
 public static class Chrome
 {
-    public const int Puerto = 9244;
+    /// <summary>DEPAS_PUERTO es para las pruebas: así nunca tocan el Chrome de Depas que Piero tenga abierto.</summary>
+    public static readonly int Puerto = int.TryParse(Environment.GetEnvironmentVariable("DEPAS_PUERTO"), out var puerto) ? puerto : 9244;
     static readonly HttpClient http = new() { BaseAddress = new($"http://127.0.0.1:{Puerto}/"), Timeout = TimeSpan.FromSeconds(5) };
 
     public static string Perfil => Path.Combine(Almacen.Carpeta, "chrome");
 
-    /// <summary>Para las pruebas: sin ventana, así no le quita el teclado a nadie.</summary>
-    static bool Oculto => Environment.GetEnvironmentVariable("DEPAS_OCULTO") == "1";
+    /// <summary>
+    /// Chrome sin ventana se presenta igual que uno con ventana («Chrome/156»), así que Depas anota el proceso
+    /// del que abrió sin ventana para saber cuál cerrar.
+    /// </summary>
+    static string Marca => Path.Combine(Almacen.Carpeta, "chrome-sin-ventana.pid");
+
+    static bool CorreSinVentana()
+    {
+        try { return File.Exists(Marca) && int.TryParse(File.ReadAllText(Marca), out var pid) && !Process.GetProcessById(pid).HasExited; }
+        catch (ArgumentException) { return false; }
+    }
 
     public static string? Ruta()
     {
@@ -43,10 +54,20 @@ public static class Chrome
         catch (Exception) { return null; }
     }
 
-    /// <summary>Abre el Chrome de Depas si no está abierto y devuelve el websocket del navegador.</summary>
-    static async Task<string> Asegurar(CancellationToken ct)
+    /// <summary>
+    /// Abre el Chrome de Depas si no está abierto y devuelve el websocket del navegador. Para buscar sirve el que
+    /// esté abierto, con ventana o sin ella; para entrar a Facebook hace falta ventana, así que si corre uno sin
+    /// ventana se cierra primero (los dos no pueden usar el mismo perfil a la vez).
+    /// </summary>
+    static async Task<string> Asegurar(bool ventana, CancellationToken ct)
     {
-        if (await UrlNavegador() is { } url) return url;
+        if (await UrlNavegador() is { } url)
+        {
+            if (!ventana || !CorreSinVentana()) return url;
+            await Cerrar();
+            for (var i = 0; i < 40 && await UrlNavegador() != null; i++) await Task.Delay(250, ct);
+            await Task.Delay(800, ct);
+        }
 
         var ruta = Ruta() ?? throw new InvalidOperationException("No encontré Chrome instalado.");
         var inicio = new ProcessStartInfo(ruta) { UseShellExecute = false };
@@ -58,29 +79,49 @@ public static class Chrome
         inicio.ArgumentList.Add("--disable-background-timer-throttling");
         inicio.ArgumentList.Add("--disable-backgrounding-occluded-windows");
         inicio.ArgumentList.Add("--disable-renderer-backgrounding");
-        if (Oculto)
+        if (!ventana)
         {
             inicio.ArgumentList.Add("--headless=new");
+            // Sin esto el navegador se anuncia como «HeadlessChrome» y algunos sitios lo tratan como robot.
             var version = FileVersionInfo.GetVersionInfo(ruta).ProductMajorPart;
             inicio.ArgumentList.Add($"--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version}.0.0.0 Safari/537.36");
         }
         Process.Start(inicio);
+        Directory.CreateDirectory(Almacen.Carpeta);
+        if (ventana) File.Delete(Marca);
 
         for (var i = 0; i < 80; i++)
         {
             await Task.Delay(250, ct);
-            if (await UrlNavegador() is { } lista) return lista;
+            if (await UrlNavegador() is not { } lista) continue;
+            // El chrome.exe que se lanza se vuelve a abrir como otro proceso: el número bueno lo da el propio Chrome.
+            if (!ventana) File.WriteAllText(Marca, (await ProcesoNavegador(lista, ct)).ToString());
+            return lista;
         }
         throw new InvalidOperationException("Chrome no respondió. Ciérralo y vuelve a intentar.");
     }
 
-    public static async Task<Pestana> AbrirPestana(string url, bool alFrente, CancellationToken ct)
+    static async Task<int> ProcesoNavegador(string url, CancellationToken ct)
     {
-        var navegadorUrl = await Asegurar(ct);
+        await using var navegador = await Cdp.Conectar(url, ct);
+        var info = await navegador.Enviar("SystemInfo.getProcessInfo", null, ct);
+        return info.GetProperty("processInfo").EnumerateArray()
+            .First(p => p.GetProperty("type").GetString() == "browser").GetProperty("id").GetInt32();
+    }
+
+    /// <summary>Una pestaña de fondo para buscar: en el Chrome sin ventana, o en el que esté abierto.</summary>
+    public static Task<Pestana> AbrirPestana(string url, CancellationToken ct) => Abrir(url, ventana: false, ct);
+
+    /// <summary>Una pestaña al frente en un Chrome con ventana, para que Piero entre a Facebook.</summary>
+    public static Task<Pestana> AbrirVentana(string url, CancellationToken ct) => Abrir(url, ventana: true, ct);
+
+    static async Task<Pestana> Abrir(string url, bool ventana, CancellationToken ct)
+    {
+        var navegadorUrl = await Asegurar(ventana, ct);
         await using var navegador = await Cdp.Conectar(navegadorUrl, ct);
-        var creada = await navegador.Enviar("Target.createTarget", new { url, background = !alFrente }, ct);
+        var creada = await navegador.Enviar("Target.createTarget", new { url, background = !ventana }, ct);
         var id = creada.GetProperty("targetId").GetString()!;
-        if (alFrente) await navegador.Enviar("Target.activateTarget", new { targetId = id }, ct);
+        if (ventana) await navegador.Enviar("Target.activateTarget", new { targetId = id }, ct);
         return new Pestana(await Cdp.Conectar($"ws://127.0.0.1:{Puerto}/devtools/page/{id}", ct));
     }
 
@@ -90,6 +131,14 @@ public static class Chrome
         await using var navegador = await Cdp.Conectar(url, CancellationToken.None);
         try { await navegador.Enviar("Browser.close", null, new CancellationTokenSource(5000).Token); }
         catch (Exception) { }
+    }
+
+    /// <summary>Al terminar de buscar: cierra el Chrome sin ventana; si Piero tiene abierta la ventana de Facebook, la deja.</summary>
+    public static async Task CerrarSiSinVentana()
+    {
+        if (!CorreSinVentana()) return;
+        await Cerrar();
+        try { File.Delete(Marca); } catch (IOException) { }
     }
 
     /// <summary>Si ya hay sesión de Facebook en el perfil de Depas (cookie c_user), sin abrir Chrome si está cerrado.</summary>

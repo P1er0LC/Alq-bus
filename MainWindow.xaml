@@ -21,7 +21,7 @@
                         <TextBlock x:Name="Sesion" FontFamily="{DynamicResource Mono}" FontSize="11" Foreground="{StaticResource TextoSuave}"
                                    TextWrapping="Wrap" Margin="0,0,8,0"/>
                     </Grid>
-                    <Button x:Name="BotonFacebook" Style="{StaticResource Enlace}" Content="→ abrir Facebook en el Chrome de Depas"
+                    <Button x:Name="BotonFacebook" Style="{StaticResource Enlace}" Content="→ entrar a Facebook (una sola vez)"
                             HorizontalAlignment="Left" Margin="0,4,0,0" Click="Facebook_Click"/>
                 </StackPanel>
 

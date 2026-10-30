@@ -94,7 +94,7 @@ public static class Buscador
         var avisos = new List<Aviso>();
         try
         {
-            await using var pestana = await Chrome.AbrirPestana("about:blank", alFrente: false, ct);
+            await using var pestana = await Chrome.AbrirPestana("about:blank", ct);
             foreach (var distrito in distritos)
             {
                 progreso.Report($"Marketplace: buscando en {distrito.Nombre}…");
@@ -188,7 +188,7 @@ public static class Buscador
 
         try
         {
-            await using var pestana = await Chrome.AbrirPestana("about:blank", alFrente: false, ct);
+            await using var pestana = await Chrome.AbrirPestana("about:blank", ct);
             foreach (var (fuente, inicio, busqueda) in portales)
             {
                 progreso.Report($"{fuente}…");
@@ -243,7 +243,7 @@ public static class Buscador
         var fallas = 0;
         try
         {
-            await using var pestana = await Chrome.AbrirPestana("about:blank", alFrente: false, ct);
+            await using var pestana = await Chrome.AbrirPestana("about:blank", ct);
             if (portal.Publicaciones && await Chrome.SesionFacebook(ct) != true)
             {
                 lock (errores) errores.Add($"{portal.Nombre} necesita la sesión de Facebook en el Chrome de Depas");

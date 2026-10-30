@@ -8,7 +8,7 @@ using Depas.Nucleo;
 namespace Depas;
 
 /// <summary>
-/// Además de la ventana, dos modos para probar sin tocar la pantalla de Piero (con DEPAS_DATOS y DEPAS_OCULTO=1):
+/// Además de la ventana, modos para probar sin tocar lo de Piero (con DEPAS_DATOS y DEPAS_PUERTO, así usan otro perfil y otro Chrome):
 ///   Depas.exe --buscar --salida resultado.json   busca con la config guardada y deja lo encontrado en un JSON
 ///   Depas.exe --captura ventana.png              dibuja la ventana fuera de la pantalla y la guarda
 /// </summary>
@@ -95,7 +95,7 @@ public partial class App : Application
         }
         finally
         {
-            if (Environment.GetEnvironmentVariable("DEPAS_OCULTO") == "1") await Chrome.Cerrar();
+            await Chrome.CerrarSiSinVentana();
         }
     }
 
@@ -107,7 +107,7 @@ public partial class App : Application
     {
         try
         {
-            await using var pestana = await Chrome.AbrirPestana("about:blank", alFrente: false, CancellationToken.None);
+            await using var pestana = await Chrome.AbrirPestana("about:blank", CancellationToken.None);
             await pestana.Ir(url, CancellationToken.None);
             await Task.Delay(3000);
             var codigo = js != null ? File.ReadAllText(js) : "async () => JSON.stringify({ url: location.href, titulo: document.title, texto: document.body.innerText.slice(0, 3000) })";
@@ -129,7 +129,7 @@ public partial class App : Application
         }
         finally
         {
-            if (Environment.GetEnvironmentVariable("DEPAS_OCULTO") == "1") await Chrome.Cerrar();
+            await Chrome.CerrarSiSinVentana();
         }
     }
 
