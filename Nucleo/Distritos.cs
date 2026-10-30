@@ -55,6 +55,12 @@ public static class Distritos
 
     public static Distrito? Buscar(string nombre) => Todos.FirstOrDefault(d => d.Nombre == nombre);
 
+    static bool NombraOtro(string texto)
+    {
+        var normal = Normalizar(texto);
+        return Resto.Any(n => Regex.IsMatch(normal, $@"\b{Regex.Escape(Normalizar(n))}\b"));
+    }
+
     /// <summary>Un «en &lt;distrito&gt;» del texto que no sea ninguno de los elegidos: se muestra como alerta en la tarjeta.</summary>
     public static string? DiceOtro(string texto, IReadOnlyCollection<string> elegidos)
     {
@@ -80,11 +86,17 @@ public static class Distritos
     /// el primer tramo que sea un distrito conocido. Si solo dice «Callao» o «Lima», se mira el título y la
     /// descripción, porque Marketplace pone así muchos de La Perla y Bellavista.
     /// </summary>
-    public static Distrito? De(string ubicacion, string texto)
+    /// <param name="marketplace">
+    /// En Marketplace, «La Victoria, LM» es donde Facebook pone los avisos de quien solo eligió «Lima»: también es
+    /// una ubicación sin precisar. Si el texto nombra otro distrito de Lima o Callao que no está en la lista
+    /// («en San Juan de Lurigancho»), el aviso queda sin distrito en vez de quedarse en La Victoria o el Callao.
+    /// </param>
+    public static Distrito? De(string ubicacion, string texto, bool marketplace = false)
     {
         var tramos = ubicacion.Split(',').Select(Normalizar).Where(t => t.Length > 0).ToArray();
-        var generico = tramos.Length == 0 || tramos[0] is "callao" or "lima";
+        var generico = tramos.Length == 0 || tramos[0] is "callao" or "lima" || (marketplace && tramos[0] == "la victoria");
         if (generico && Mencionado(texto) is { } mencionado) return mencionado;
+        if (generico && marketplace && NombraOtro(texto)) return null;
         foreach (var tramo in tramos)
             if (Todos.FirstOrDefault(d => d.Alias.Any(a => EsTramo(tramo, a))) is { } distrito) return distrito;
         return null;

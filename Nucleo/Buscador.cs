@@ -185,7 +185,7 @@ public static class Buscador
             Titulo = titulo,
             Ubicacion = ubicacion,
             Imagen = imagen,
-            Distrito = Distritos.De(ubicacion, titulo)?.Nombre,
+            Distrito = Distritos.De(ubicacion, titulo, marketplace: true)?.Nombre,
             Precio = Texto.Precio(precios[0], tipoCambio),
             PrecioAnterior = precios.Length > 1 ? Texto.Precio(precios[1], tipoCambio) : null,
             Dormitorios = Texto.Dormitorios(titulo),

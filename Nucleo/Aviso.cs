@@ -79,8 +79,8 @@ public sealed class Aviso
     /// </summary>
     void UbicarPorTexto()
     {
-        if (Fuente == Fuentes.Marketplace && Descripcion.Length > 0)
-            Distrito = Nucleo.Distritos.De(Ubicacion, $"{Titulo}\n{Descripcion}")?.Nombre ?? Distrito;
+        if (Fuente == Fuentes.Marketplace)
+            Distrito = Nucleo.Distritos.De(Ubicacion, $"{Titulo}\n{Descripcion}", marketplace: true)?.Nombre;
     }
 
     /// <summary>Vuelve a sacar dormitorios, baños y distrito de un aviso de Marketplace guardado (título y descripción).</summary>
@@ -92,8 +92,11 @@ public sealed class Aviso
         UbicarPorTexto();
     }
 
-    /// <summary>De Marketplace y sin distrito preciso: el vendedor puso solo «Callao» o «Lima».</summary>
-    public bool UbicacionGenerica => Fuente == Fuentes.Marketplace && Nucleo.Distritos.Normalizar(Ubicacion.Split(',')[0]) is "callao" or "lima";
+    /// <summary>
+    /// De Marketplace y sin distrito preciso: el vendedor puso solo «Callao» o «Lima» (Facebook muestra esta última
+    /// como «La Victoria»).
+    /// </summary>
+    public bool UbicacionGenerica => Fuente == Fuentes.Marketplace && Nucleo.Distritos.Normalizar(Ubicacion.Split(',')[0]) is "callao" or "lima" or "la victoria";
 }
 
 /// <summary>Saca números de los textos de los avisos: precios, dormitorios, baños y metros.</summary>
