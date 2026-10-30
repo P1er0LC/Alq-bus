@@ -61,6 +61,16 @@ public static class Chrome
     /// </summary>
     static async Task<string> Asegurar(bool ventana, CancellationToken ct)
     {
+        // Las fuentes arrancan a la vez: sin el candado, cada una abría su Chrome y chocaban al anotar el proceso.
+        await abriendo.WaitAsync(ct);
+        try { return await AsegurarSolo(ventana, ct); }
+        finally { abriendo.Release(); }
+    }
+
+    static readonly SemaphoreSlim abriendo = new(1, 1);
+
+    static async Task<string> AsegurarSolo(bool ventana, CancellationToken ct)
+    {
         if (await UrlNavegador() is { } url)
         {
             if (!ventana || !CorreSinVentana()) return url;

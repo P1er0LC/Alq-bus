@@ -110,7 +110,7 @@ public partial class MainWindow : Window
         IEnumerable<Aviso> visibles = config.Vista == "Favoritos"
             ? avisos.Where(a => a.Favorito && (!a.Descartado || config.MostrarDescartados))
             : avisos.Where(a => Buscador.Pasa(a, config, excluidas));
-        var lista = visibles.Select(a => new Fila(a, config.InicioUltimaBusqueda, config.Distritos));
+        var lista = Buscador.JuntarParaMostrar(visibles).Select(j => new Fila(j.Aviso, config.InicioUltimaBusqueda, config.Distritos, j.Tambien));
         if (config.Vista == "Nuevos") lista = lista.Where(f => f.EsNuevo);
         lista = config.Orden == "Precio"
             ? lista.OrderBy(f => f.Aviso.Precio).ThenByDescending(f => f.Aviso.PrimeraVez)

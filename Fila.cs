@@ -8,7 +8,8 @@ using Depas.Nucleo;
 namespace Depas;
 
 /// <summary>Lo que muestra una tarjeta de la lista, armado a partir de un aviso guardado.</summary>
-public sealed class Fila(Aviso aviso, DateTime inicioUltimaBusqueda, IReadOnlyCollection<string> elegidos) : INotifyPropertyChanged
+/// <param name="tambien">Otras fuentes donde sale el mismo departamento (de esta búsqueda y de las anteriores).</param>
+public sealed class Fila(Aviso aviso, DateTime inicioUltimaBusqueda, IReadOnlyCollection<string> elegidos, List<string> tambien) : INotifyPropertyChanged
 {
     static readonly CultureInfo Numeros = CultureInfo.InvariantCulture;
     ImageSource? miniatura;
@@ -38,7 +39,7 @@ public sealed class Fila(Aviso aviso, DateTime inicioUltimaBusqueda, IReadOnlyCo
     }.OfType<string>());
 
     public string Lugar => $"{aviso.Distrito}  ·  {aviso.Fuente}"
-        + (aviso.TambienEn.Count > 0 ? $" (también en {string.Join(", ", aviso.TambienEn)})" : "")
+        + (tambien.Count > 0 ? $" (también en {string.Join(", ", tambien)})" : "")
         + $"  ·  {Hace(aviso.PrimeraVez)}";
 
     public string Alerta => diceOtro is null ? "" : $"ojo: el aviso dice «en {diceOtro}»";

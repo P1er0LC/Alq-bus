@@ -75,6 +75,30 @@ public static class Buscador
         return avisos;
     }
 
+    /// <summary>
+    /// Lo mismo para la lista guardada, sin tocarla: si en una búsqueda falló una fuente, el mismo departamento pudo
+    /// quedar guardado dos veces (de Properati en una búsqueda y de Trovit en otra). Se muestra uno con «también en».
+    /// </summary>
+    public static List<(Aviso Aviso, List<string> Tambien)> JuntarParaMostrar(IEnumerable<Aviso> avisos)
+    {
+        var grupos = new List<(Aviso Aviso, List<string> Tambien)>();
+        var porHuella = new Dictionary<string, int>();
+        foreach (var aviso in avisos.OrderBy(a => Array.IndexOf(Fuentes.Todas, a.Fuente)))
+        {
+            var huellas = Huellas(aviso).ToList();
+            var otras = aviso.TambienEn.Prepend(aviso.Fuente);
+            if (huellas.Select(h => porHuella.TryGetValue(h, out var i) ? i : -1).FirstOrDefault(i => i >= 0, -1) is var previo and >= 0)
+            {
+                var g = grupos[previo];
+                g.Tambien.AddRange(otras.Where(f => f != g.Aviso.Fuente && !g.Tambien.Contains(f)));
+                continue;
+            }
+            foreach (var h in huellas) porHuella[h] = grupos.Count;
+            grupos.Add((aviso, [.. aviso.TambienEn]));
+        }
+        return grupos;
+    }
+
     static IEnumerable<string> Huellas(Aviso a)
     {
         yield return a.Clave;
