@@ -51,11 +51,13 @@ public sealed class Aviso
         Precio = nuevo.Precio;
         PrecioAnterior = nuevo.PrecioAnterior;
         Mantenimiento = nuevo.Mantenimiento ?? Mantenimiento;
-        Dormitorios = nuevo.Dormitorios ?? Dormitorios;
+        // Lo que no dice la lista sale de la descripción guardada, no de una lectura vieja (antes «1x1» contaba como 1 dormitorio).
+        Dormitorios = nuevo.Dormitorios ?? (Descripcion.Length > 0 ? Texto.Dormitorios(Descripcion) : null);
         Banos = nuevo.Banos ?? Banos;
         Area = nuevo.Area ?? Area;
         TambienEn = nuevo.TambienEn;
         UltimaVez = nuevo.UltimaVez;
+        UbicarPorTexto();
     }
 
     /// <summary>Completa con la página del aviso lo que el título no decía.</summary>
@@ -67,7 +69,29 @@ public sealed class Aviso
         Banos ??= Texto.Banos(todo);
         Area ??= Texto.Area(todo);
         Mantenimiento ??= Texto.Mantenimiento(descripcion);
+        UbicarPorTexto();
     }
+
+    /// <summary>
+    /// Marketplace a veces solo dice «Callao» o «Lima»: si la descripción dice «en La Perla», el aviso es de La Perla.
+    /// Con una ubicación precisa («Bellavista, Callao, Peru») manda la ubicación.
+    /// </summary>
+    void UbicarPorTexto()
+    {
+        if (Fuente == Fuentes.Marketplace && Descripcion.Length > 0)
+            Distrito = Nucleo.Distritos.De(Ubicacion, $"{Titulo}\n{Descripcion}")?.Nombre ?? Distrito;
+    }
+
+    /// <summary>Vuelve a sacar dormitorios, baños y distrito de un aviso de Marketplace guardado (título y descripción).</summary>
+    public void Releer()
+    {
+        Dormitorios = Texto.Dormitorios(Titulo) ?? (Descripcion.Length > 0 ? Texto.Dormitorios(Descripcion) : null);
+        Banos = Texto.Banos(Titulo) ?? (Descripcion.Length > 0 ? Texto.Banos(Descripcion) : null);
+        UbicarPorTexto();
+    }
+
+    /// <summary>De Marketplace y sin distrito preciso: el vendedor puso solo «Callao» o «Lima».</summary>
+    public bool UbicacionGenerica => Fuente == Fuentes.Marketplace && Nucleo.Distritos.Normalizar(Ubicacion.Split(',')[0]) is "callao" or "lima";
 }
 
 /// <summary>Saca números de los textos de los avisos: precios, dormitorios, baños y metros.</summary>
@@ -81,10 +105,6 @@ public static partial class Texto
 
     [GeneratedRegex(@"\b(un|una|dos|tres|cuatro)\s+(?:habitaci[oó]n(?:es)?|dormitorios?|cuartos?)\b", RegexOptions.IgnoreCase)]
     private static partial Regex RxDormitoriosEnLetras();
-
-    /// <summary>«1x1», «2 x 2»: dormitorios por baños, como se escribe en los avisos de Lima.</summary>
-    [GeneratedRegex(@"\b([1-4])\s?x\s?([1-3])\b", RegexOptions.IgnoreCase)]
-    private static partial Regex RxPorBanos();
 
     [GeneratedRegex(@"mantenimiento[^\d\n]{0,16}(\d{2,4})", RegexOptions.IgnoreCase)]
     private static partial Regex RxMantenimiento();
@@ -120,10 +140,9 @@ public static partial class Texto
     {
         var m = RxDormitorios().Match(texto);
         if (m.Success && int.TryParse(m.Groups[1].Value, out var n) && n is > 0 and < 10) return n;
+        // «1x1» no se usa: en los alquileres de Lima casi siempre es «1 mes de adelanto y 1 de garantía».
         var letras = RxDormitoriosEnLetras().Match(texto);
-        if (letras.Success) return letras.Groups[1].Value.ToLowerInvariant() switch { "un" or "una" => 1, "dos" => 2, "tres" => 3, _ => 4 };
-        var por = RxPorBanos().Match(texto);
-        return por.Success ? int.Parse(por.Groups[1].Value) : null;
+        return letras.Success ? letras.Groups[1].Value.ToLowerInvariant() switch { "un" or "una" => 1, "dos" => 2, "tres" => 3, _ => 4 } : null;
     }
 
     public static int? Mantenimiento(string texto)
@@ -149,11 +168,8 @@ public static partial class Texto
         return null;
     }
 
-    public static int? Banos(string texto)
-    {
-        if (RxBanos().Match(texto) is { Success: true } m && int.TryParse(m.Groups[1].Value, out var n) && n < 10) return n;
-        return RxPorBanos().Match(texto) is { Success: true } por ? int.Parse(por.Groups[2].Value) : null;
-    }
+    public static int? Banos(string texto) =>
+        RxBanos().Match(texto) is { Success: true } m && int.TryParse(m.Groups[1].Value, out var n) && n < 10 ? n : null;
 
     public static int? Area(string texto) =>
         RxArea().Match(texto) is { Success: true } m && decimal.TryParse(m.Groups[1].Value.Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture, out var n) && n is > 5 and < 2000 ? (int)n : null;

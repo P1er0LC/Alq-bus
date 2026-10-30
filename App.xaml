@@ -154,7 +154,9 @@
             </Setter>
         </Style>
 
+        <!-- El color del texto va explícito: si no, las tarjetas heredan el negro del tema de Windows. -->
         <Style TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource Texto}"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0,0,0,10"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>

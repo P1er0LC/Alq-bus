@@ -116,10 +116,11 @@ public static class Buscador
             }
 
             // La lista solo trae título y precio. Los que podrían servir y no se leyeron antes se abren uno por uno:
-            // la descripción dice los dormitorios que el título calla.
+            // la descripción dice los dormitorios que el título calla, y el distrito de los que solo dicen «Callao» o «Lima».
             avisos = avisos.GroupBy(a => a.Clave).Select(g => g.First()).ToList();
             var excluidas = Excluidas(config);
-            var porLeer = avisos.Where(a => !conDetalle.Contains(a.Clave) && PasaBasico(a, config, excluidas)
+            var porLeer = avisos.Where(a => !conDetalle.Contains(a.Clave)
+                                            && (PasaBasico(a, config, excluidas) || (a.UbicacionGenerica && PasaPrecioYTitulo(a, config, excluidas)))
                                             && (a.Dormitorios is null || a.Dormitorios >= config.DormitoriosMin)).ToList();
             for (var i = 0; i < porLeer.Count; i++)
             {
@@ -362,6 +363,11 @@ public static class Buscador
     {
         if (!c.Usa(a.Fuente) && !a.TambienEn.Any(c.Usa)) return false;
         if (a.Distrito is null || !c.Distritos.Contains(a.Distrito)) return false;
+        return PasaPrecioYTitulo(a, c, excluidas);
+    }
+
+    static bool PasaPrecioYTitulo(Aviso a, Config c, Regex[] excluidas)
+    {
         if (a.Precio is not int precio || precio < c.PrecioMin || precio > c.PrecioMax) return false;
         var titulo = Distritos.Normalizar(a.Titulo);
         return !excluidas.Any(r => r.IsMatch(titulo));

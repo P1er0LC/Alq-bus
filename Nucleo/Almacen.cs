@@ -78,7 +78,14 @@ public static class Almacen
     }
     public static void Guardar(Config config) => Escribir(RutaConfig, config);
 
-    public static List<Aviso> LeerAvisos() => Leer<List<Aviso>>(RutaAvisos) ?? [];
+    public static List<Aviso> LeerAvisos()
+    {
+        var avisos = Leer<List<Aviso>>(RutaAvisos) ?? [];
+        // Lo que se saca del texto se vuelve a sacar al abrir: si la lectura mejora (el «1x1» ya no cuenta como
+        // 1 dormitorio), los avisos guardados se corrigen sin tener que volver a encontrarlos.
+        foreach (var a in avisos.Where(a => a.Fuente == Fuentes.Marketplace)) a.Releer();
+        return avisos;
+    }
     public static void Guardar(List<Aviso> avisos) => Escribir(RutaAvisos, avisos);
 
     static T? Leer<T>(string ruta)

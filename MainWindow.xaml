@@ -93,7 +93,7 @@
             </Grid>
 
             <Grid>
-                <ListBox x:Name="Lista" Background="Transparent" BorderThickness="0" Padding="28,0,20,20"
+                <ListBox x:Name="Lista" Background="Transparent" Foreground="{StaticResource Texto}" BorderThickness="0" Padding="28,0,20,20"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.ScrollUnit="Pixel"
                          MouseDoubleClick="Lista_DobleClic">
