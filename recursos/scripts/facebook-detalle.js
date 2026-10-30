@@ -16,7 +16,8 @@ async (P) => {
   const entre = (desde, hasta) => {
     const m = texto.match(desde);
     if (!m) return '';
-    const resto = texto.slice(m.index + m[0].length);
+    // El salto de línea que cierra el título queda adentro: así, sin descripción, lo siguiente («Información del vendedor») corta enseguida.
+    const resto = '\n' + texto.slice(m.index + m[0].length);
     const fin = resto.search(hasta);
     return (fin < 0 ? resto : resto.slice(0, fin)).trim();
   };

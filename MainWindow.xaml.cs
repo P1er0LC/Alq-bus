@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using Depas.Nucleo;
 
 namespace Depas;
@@ -119,6 +121,61 @@ public partial class MainWindow : Window
         filas.Clear();
         foreach (var fila in lista) filas.Add(fila);
         Contar();
+        Sugerir();
+    }
+
+    /// <summary>
+    /// Lo que ya se encontró y queda afuera por un solo filtro: «+30 de 1 dormitorio», «+16 en Callao».
+    /// Cada uno se pulsa para sumarlo. Los distritos cuentan solo lo encontrado de rebote: con Buscar trae más.
+    /// </summary>
+    void Sugerir()
+    {
+        Sugerencias.Children.Clear();
+        var opciones = new List<(string Texto, Action Aplicar)>();
+        if (config.Vista != "Favoritos")
+        {
+            int Cuantos(Action<Config> cambio)
+            {
+                var otra = JsonSerializer.Deserialize<Config>(JsonSerializer.Serialize(config))!;
+                cambio(otra);
+                var excluidas = Buscador.Excluidas(otra);
+                return Buscador.JuntarParaMostrar(avisos.Where(a => Buscador.Pasa(a, otra, excluidas))).Count;
+            }
+            var ahora = Cuantos(_ => { });
+            if (config.DormitoriosMin > 1 && Cuantos(c => c.DormitoriosMin = config.DormitoriosMin - 1) - ahora is var masDormitorio and > 0)
+            {
+                var menos = config.DormitoriosMin - 1;
+                opciones.Add(($"+{masDormitorio} de {menos} dormitorio{(menos == 1 ? "" : "s")}", () =>
+                {
+                    config.DormitoriosMin = menos;
+                    Marcar(Dormitorios, menos.ToString());
+                }));
+            }
+            var cercanos = Distritos.Todos.Where(d => !config.Distritos.Contains(d.Nombre))
+                .Select(d => (d.Nombre, Cuantos: Cuantos(c => c.Distritos = [d.Nombre])))
+                .Where(x => x.Cuantos > 0).OrderByDescending(x => x.Cuantos).Take(4);
+            foreach (var (nombre, cuantos) in cercanos)
+                opciones.Add(($"+{cuantos} en {nombre}", () =>
+                {
+                    foreach (var chip in DistritosPrincipales.Children.OfType<ToggleButton>().Concat(DistritosOtros.Children.OfType<ToggleButton>()))
+                        if ((string)chip.Tag == nombre) chip.IsChecked = true;
+                    if (DistritosOtros.Visibility != Visibility.Visible) MasDistritos_Click(this, new RoutedEventArgs());
+                }));
+        }
+
+        Sugerencias.Visibility = opciones.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (opciones.Count == 0) return;
+        Sugerencias.Children.Add(new TextBlock
+        {
+            Text = "también hay:", FontFamily = (FontFamily)FindResource("Mono"), FontSize = 11,
+            Foreground = (Brush)FindResource("TextoSuave"), Margin = new Thickness(0, 2, 10, 0),
+        });
+        foreach (var (texto, aplicar) in opciones)
+        {
+            var boton = new Button { Content = texto, Style = (Style)FindResource("Enlace"), Foreground = (Brush)FindResource("Nuevo"), Margin = new Thickness(0, 0, 14, 0) };
+            boton.Click += (_, e) => { aplicar(); Filtro_Cambio(boton, e); };
+            Sugerencias.Children.Add(boton);
+        }
     }
 
     void Contar()

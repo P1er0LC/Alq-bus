@@ -116,14 +116,19 @@ public static class Buscador
     static async Task<List<Aviso>> Marketplace(Config config, List<Distrito> distritos, IReadOnlySet<string> conDetalle, List<string> errores, IProgress<string> progreso, CancellationToken ct)
     {
         var avisos = new List<Aviso>();
+        var precio = $"minPrice={config.PrecioMin}&maxPrice={config.PrecioMax}&exact=false";
+        // Sin sesión, Facebook corta cada búsqueda en unos 24 avisos: varias búsquedas distintas encuentran más.
+        // La categoría Alquileres trae también los avisos cuyo título no dice «departamento» y filtra por dormitorios.
+        var busquedas = distritos.SelectMany(d => new[] { "departamento", "alquiler" }
+                .Select(palabra => ($"{d.Nombre} ({palabra})", $"https://www.facebook.com/marketplace/lima/search?query={Uri.EscapeDataString($"{palabra} {d.Nombre}")}&{precio}")))
+            .Append(("Alquileres de Lima", $"https://www.facebook.com/marketplace/lima/propertyrentals?{precio}&minBedrooms={config.DormitoriosMin}&sortBy=creation_time_descend"));
         try
         {
             await using var pestana = await Chrome.AbrirPestana("about:blank", ct);
-            foreach (var distrito in distritos)
+            foreach (var (nombre, direccion) in busquedas)
             {
-                progreso.Report($"Marketplace: buscando en {distrito.Nombre}…");
-                var consulta = Uri.EscapeDataString($"departamento {distrito.Nombre}");
-                await pestana.Ir($"https://www.facebook.com/marketplace/lima/search?query={consulta}&minPrice={config.PrecioMin}&maxPrice={config.PrecioMax}&exact=false", ct);
+                progreso.Report($"Marketplace: {nombre}…");
+                await pestana.Ir(direccion, ct);
                 var json = await pestana.Evaluar(Llamar("facebook.js", new { vueltas = VueltasMarketplace }), ct);
                 using var doc = JsonDocument.Parse(json ?? "{}");
                 if (doc.RootElement.TryGetProperty("url", out var url) && url.GetString()!.Contains("/login"))

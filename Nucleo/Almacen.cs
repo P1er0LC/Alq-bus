@@ -20,7 +20,8 @@ public sealed class Config
         "habitación c, habitación amoblada, habitación independiente, alquilo habitación, se alquila habitación, " +
         "alquiler de habitación, mini, minidepa, minidepartamento, nano, monoambiente, estudiante, para pareja, pareja sola, " +
         "busco, buscamos, necesito, " +
-        "oficina, local comercial, consultorio, palco, cochera, almacén, terreno, en venta, para una persona, para 1 persona";
+        "oficina, local comercial, local, terraza, evento, eventos, depósito, tienda, consultorio, palco, cochera, almacén, " +
+        "terreno, en venta, para una persona, para 1 persona";
     public bool MostrarDescartados { get; set; }
     public string Vista { get; set; } = "Todos";
     public string Orden { get; set; } = "Recientes";
@@ -32,19 +33,23 @@ public sealed class Config
 
     public bool Usa(string fuente) => !FuentesApagadas.Contains(fuente);
 
-    public const int VersionActual = 2;
+    public const int VersionActual = 3;
     public int Version { get; set; }
 
     /// <summary>A una config de una versión anterior le suma las palabras a ocultar que se agregaron después.</summary>
     public void Actualizar()
     {
-        if (Version < 2)
-        {
-            var tiene = PalabrasExcluidas().ToHashSet();
-            var nuevas = new[] { "busco", "buscamos", "necesito", "nano" }.Where(p => !tiene.Contains(p)).ToList();
-            if (nuevas.Count > 0) Excluir = Excluir.TrimEnd(' ', ',') + ", " + string.Join(", ", nuevas);
-        }
+        if (Version < 2) Sumar("busco", "buscamos", "necesito", "nano");
+        // La búsqueda «alquiler <distrito>» de Marketplace trae locales, terrazas y depósitos.
+        if (Version < 3) Sumar("local", "terraza", "evento", "eventos", "depósito", "tienda");
         Version = VersionActual;
+    }
+
+    void Sumar(params string[] palabras)
+    {
+        var tiene = PalabrasExcluidas().ToHashSet();
+        var nuevas = palabras.Where(p => !tiene.Contains(Nucleo.Distritos.Normalizar(p))).ToList();
+        if (nuevas.Count > 0) Excluir = Excluir.TrimEnd(' ', ',') + ", " + string.Join(", ", nuevas);
     }
 
     public IEnumerable<string> PalabrasExcluidas() =>

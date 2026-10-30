@@ -63,7 +63,8 @@ public sealed class Aviso
     /// <summary>Completa con la página del aviso lo que el título no decía.</summary>
     public void Completar(string descripcion, string detalles)
     {
-        Descripcion = descripcion;
+        // Los guardados con la lectura anterior tenían el título de la sección siguiente como descripción.
+        Descripcion = descripcion is "Información del vendedor" or "Seller information" ? "" : descripcion;
         var todo = detalles + "\n" + descripcion;
         Dormitorios ??= Texto.Dormitorios(todo);
         Banos ??= Texto.Banos(todo);
@@ -85,6 +86,7 @@ public sealed class Aviso
     /// <summary>Vuelve a sacar dormitorios, baños y distrito de un aviso de Marketplace guardado (título y descripción).</summary>
     public void Releer()
     {
+        if (Descripcion is "Información del vendedor" or "Seller information") Descripcion = "";
         Dormitorios = Texto.Dormitorios(Titulo) ?? (Descripcion.Length > 0 ? Texto.Dormitorios(Descripcion) : null);
         Banos = Texto.Banos(Titulo) ?? (Descripcion.Length > 0 ? Texto.Banos(Descripcion) : null);
         UbicarPorTexto();
