@@ -12,12 +12,14 @@ public sealed class Config
     public int DormitoriosMin { get; set; } = 2;
     /// <summary>Muchos avisos de Marketplace no dicen cuántos dormitorios tienen: por defecto se muestran.</summary>
     public bool SinDormitorios { get; set; } = true;
-    public List<string> Fuentes { get; set; } = [.. Nucleo.Fuentes.Todas];
+    /// <summary>Las fuentes que Piero apagó: así las que se agreguen en versiones nuevas quedan prendidas.</summary>
+    public List<string> FuentesApagadas { get; set; } = [];
     /// <summary>Si el título tiene alguna de estas, el aviso no se muestra: cuartos, minidepas, oficinas, ventas.</summary>
     public string Excluir { get; set; } =
         "roommate, solo habitación, alquilo cuarto, alquiler de cuarto, se alquila cuarto, cuarto para, habitación para, habitación con, " +
         "habitación c, habitación amoblada, habitación independiente, alquilo habitación, se alquila habitación, " +
-        "alquiler de habitación, mini, minidepa, minidepartamento, monoambiente, estudiante, para pareja, pareja sola, " +
+        "alquiler de habitación, mini, minidepa, minidepartamento, nano, monoambiente, estudiante, para pareja, pareja sola, " +
+        "busco, buscamos, necesito, " +
         "oficina, local comercial, consultorio, palco, cochera, almacén, terreno, en venta, para una persona, para 1 persona";
     public bool MostrarDescartados { get; set; }
     public string Vista { get; set; } = "Todos";
@@ -27,6 +29,23 @@ public sealed class Config
     public bool? SesionFacebook { get; set; }
     /// <summary>Los avisos que aparecieron por primera vez desde aquí son los «nuevos».</summary>
     public DateTime InicioUltimaBusqueda { get; set; }
+
+    public bool Usa(string fuente) => !FuentesApagadas.Contains(fuente);
+
+    public const int VersionActual = 2;
+    public int Version { get; set; }
+
+    /// <summary>A una config de una versión anterior le suma las palabras a ocultar que se agregaron después.</summary>
+    public void Actualizar()
+    {
+        if (Version < 2)
+        {
+            var tiene = PalabrasExcluidas().ToHashSet();
+            var nuevas = new[] { "busco", "buscamos", "necesito", "nano" }.Where(p => !tiene.Contains(p)).ToList();
+            if (nuevas.Count > 0) Excluir = Excluir.TrimEnd(' ', ',') + ", " + string.Join(", ", nuevas);
+        }
+        Version = VersionActual;
+    }
 
     public IEnumerable<string> PalabrasExcluidas() =>
         Excluir.Split(',', '\n').Select(p => Nucleo.Distritos.Normalizar(p)).Where(p => p.Length > 0);
@@ -51,7 +70,12 @@ public static class Almacen
     static string RutaConfig => Path.Combine(Carpeta, "config.json");
     static string RutaAvisos => Path.Combine(Carpeta, "avisos.json");
 
-    public static Config LeerConfig() => Leer<Config>(RutaConfig) ?? new Config();
+    public static Config LeerConfig()
+    {
+        if (Leer<Config>(RutaConfig) is not { } config) return new Config { Version = Config.VersionActual };
+        if (config.Version < Config.VersionActual) config.Actualizar();
+        return config;
+    }
     public static void Guardar(Config config) => Escribir(RutaConfig, config);
 
     public static List<Aviso> LeerAvisos() => Leer<List<Aviso>>(RutaAvisos) ?? [];

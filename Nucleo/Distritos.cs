@@ -71,7 +71,8 @@ public static class Distritos
         var sb = new StringBuilder(texto.Length);
         foreach (var c in texto.Normalize(NormalizationForm.FormD))
             if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark) sb.Append(char.ToLowerInvariant(c));
-        return Regex.Replace(sb.ToString(), @"\s+", " ").Trim();
+        // Los guiones como espacios: «Carmen de La Legua-Reynoso».
+        return Regex.Replace(sb.ToString().Replace('-', ' '), @"\s+", " ").Trim();
     }
 
     /// <summary>
@@ -85,15 +86,21 @@ public static class Distritos
         var generico = tramos.Length == 0 || tramos[0] is "callao" or "lima";
         if (generico && Mencionado(texto) is { } mencionado) return mencionado;
         foreach (var tramo in tramos)
-            if (Todos.FirstOrDefault(d => d.Alias.Contains(tramo)) is { } distrito) return distrito;
+            if (Todos.FirstOrDefault(d => d.Alias.Any(a => EsTramo(tramo, a))) is { } distrito) return distrito;
         return null;
     }
 
+    /// <summary>«San Miguel», o «Departamento in San Miguel» / «in Bellavista» / «Apartamento en San Miguel» como escriben Trovit e Infocasas.</summary>
+    static bool EsTramo(string tramo, string alias) =>
+        tramo == alias || $" {tramo}".EndsWith($" en {alias}") || $" {tramo}".EndsWith($" in {alias}");
+
+    /// <summary>El distrito que aparece primero en el texto: el título y la ubicación van antes que la descripción.</summary>
     static Distrito? Mencionado(string texto)
     {
         var normal = Normalizar(texto);
         // «Callao» a secas no cuenta: aparece en casi todos los avisos del Callao.
         return Todos.Where(d => d.Nombre != "Callao")
-            .FirstOrDefault(d => d.Alias.Any(a => Regex.IsMatch(normal, $@"\b{Regex.Escape(a)}\b")));
+            .Select(d => (d, pos: d.Alias.Select(a => Regex.Match(normal, $@"\b{Regex.Escape(a)}\b")).Where(m => m.Success).Select(m => m.Index).DefaultIfEmpty(int.MaxValue).Min()))
+            .Where(x => x.pos < int.MaxValue).OrderBy(x => x.pos).Select(x => x.d).FirstOrDefault();
     }
 }

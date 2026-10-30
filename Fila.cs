@@ -37,7 +37,9 @@ public sealed class Fila(Aviso aviso, DateTime inicioUltimaBusqueda, IReadOnlyCo
         aviso.Area is int a ? $"{a} m²" : null,
     }.OfType<string>());
 
-    public string Lugar => $"{aviso.Distrito}  ·  {aviso.Fuente}  ·  {Hace(aviso.PrimeraVez)}";
+    public string Lugar => $"{aviso.Distrito}  ·  {aviso.Fuente}"
+        + (aviso.TambienEn.Count > 0 ? $" (también en {string.Join(", ", aviso.TambienEn)})" : "")
+        + $"  ·  {Hace(aviso.PrimeraVez)}";
 
     public string Alerta => diceOtro is null ? "" : $"ojo: el aviso dice «en {diceOtro}»";
     public Visibility VerAlerta => diceOtro is null ? Visibility.Collapsed : Visibility.Visible;

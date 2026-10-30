@@ -3,16 +3,19 @@ using System.Text.RegularExpressions;
 
 namespace Depas.Nucleo;
 
-public sealed record Resultado(List<Aviso> Avisos, List<string> Errores, bool? SesionFacebook);
+/// <param name="Registro">Qué devolvió cada página (fuente · distrito: tarjetas · título), para revisar cuando un sitio cambia.</param>
+public sealed record Resultado(List<Aviso> Avisos, List<string> Errores, bool? SesionFacebook, List<string> Registro);
 
 /// <summary>
-/// Busca en el Chrome de Depas: Marketplace en una pestaña (una búsqueda por distrito) y los portales en otra,
-/// las dos a la vez. Trae todo lo del rango de precio; dormitorios y palabras se filtran en la app.
+/// Busca en el Chrome de Depas, cada fuente en su pestaña y hasta cuatro a la vez: Marketplace (una búsqueda por
+/// distrito y después la página de cada aviso nuevo), Adondevivir y Urbania con su lector propio, y el resto de los
+/// portales con el lector general. Trae todo lo del rango de precio; dormitorios y palabras se filtran en la app.
 /// </summary>
 public static class Buscador
 {
     const int VueltasMarketplace = 6;
     const int MaxPaginasPortal = 5;
+    const int PestanasALaVez = 5;
 
     static string Script(string nombre) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "recursos", "scripts", nombre));
 
@@ -23,24 +26,61 @@ public static class Buscador
     {
         var distritos = config.Distritos.Select(Distritos.Buscar).OfType<Distrito>().ToList();
         var errores = new List<string>();
+        var registro = new List<string>();
+        var turnos = new SemaphoreSlim(PestanasALaVez);
+        async Task<List<Aviso>> EnTurno(Func<Task<List<Aviso>>> fuente)
+        {
+            await turnos.WaitAsync(ct);
+            try { return await fuente(); }
+            finally { turnos.Release(); }
+        }
+
         var tareas = new List<Task<List<Aviso>>>();
-        if (config.Fuentes.Contains(Fuentes.Marketplace))
-            tareas.Add(Marketplace(config, distritos, conDetalle, errores, progreso, ct));
-        if (config.Fuentes.Contains(Fuentes.Adondevivir) || config.Fuentes.Contains(Fuentes.Urbania))
-            tareas.Add(Portales(config, distritos, errores, progreso, ct));
+        if (config.Usa(Fuentes.Marketplace))
+            tareas.Add(EnTurno(() => Marketplace(config, distritos, conDetalle, errores, progreso, ct)));
+        if (config.Usa(Fuentes.Adondevivir) || config.Usa(Fuentes.Urbania))
+            tareas.Add(EnTurno(() => Navent(config, distritos, errores, progreso, ct)));
+        foreach (var portal in Portales.Todos.Where(p => config.Usa(p.Nombre)))
+            tareas.Add(EnTurno(() => Portal(portal, config, distritos, errores, registro, progreso, ct)));
 
         var listas = await Task.WhenAll(tareas);
         bool? sesion = null;
-        if (config.Fuentes.Contains(Fuentes.Marketplace))
+        if (config.Usa(Fuentes.Marketplace))
         {
             try { sesion = await Chrome.SesionFacebook(ct); } catch (Exception) { }
         }
+        return new Resultado(Juntar(listas.SelectMany(l => l)), errores, sesion, registro);
+    }
 
-        // Adondevivir y Urbania publican los mismos avisos con ids distintos: se reconocen por precio y descripción.
-        var avisos = listas.SelectMany(l => l)
-            .GroupBy(a => a.Fuente == Fuentes.Marketplace || a.Descripcion.Length < 40 ? a.Clave : $"{a.Precio}|{Recorte(a.Descripcion)}")
-            .Select(g => g.First()).ToList();
-        return new Resultado(avisos, errores, sesion);
+    /// <summary>
+    /// Un mismo departamento sale en varias fuentes: Adondevivir y Urbania con ids distintos (se reconocen por precio
+    /// y descripción), y los agregadores repiten los de los portales (mismo distrito, precio, metros y dormitorios).
+    /// Queda el de la fuente preferida y las otras se anotan en «también en».
+    /// </summary>
+    static List<Aviso> Juntar(IEnumerable<Aviso> encontrados)
+    {
+        var avisos = new List<Aviso>();
+        var porHuella = new Dictionary<string, Aviso>();
+        foreach (var aviso in encontrados.OrderBy(a => Array.IndexOf(Fuentes.Todas, a.Fuente)))
+        {
+            var huellas = Huellas(aviso).ToList();
+            if (huellas.Select(h => porHuella.GetValueOrDefault(h)).FirstOrDefault(a => a != null) is { } previo)
+            {
+                if (previo.Fuente != aviso.Fuente && !previo.TambienEn.Contains(aviso.Fuente)) previo.TambienEn.Add(aviso.Fuente);
+                continue;
+            }
+            foreach (var h in huellas) porHuella[h] = aviso;
+            avisos.Add(aviso);
+        }
+        return avisos;
+    }
+
+    static IEnumerable<string> Huellas(Aviso a)
+    {
+        yield return a.Clave;
+        if (a.Fuente != Fuentes.Marketplace && a.Descripcion.Length >= 40) yield return $"texto|{a.Precio}|{Recorte(a.Descripcion)}";
+        if (a.Distrito != null && a.Precio != null && a.Area != null && a.Dormitorios != null)
+            yield return $"datos|{a.Distrito}|{a.Precio}|{a.Area}|{a.Dormitorios}";
     }
 
     static string Recorte(string texto)
@@ -126,19 +166,19 @@ public static class Buscador
         };
     }
 
-    static async Task<List<Aviso>> Portales(Config config, List<Distrito> distritos, List<string> errores, IProgress<string> progreso, CancellationToken ct)
+    static async Task<List<Aviso>> Navent(Config config, List<Distrito> distritos, List<string> errores, IProgress<string> progreso, CancellationToken ct)
     {
         var avisos = new List<Aviso>();
         var rango = $"de-{config.PrecioMin}-a-{config.PrecioMax}-soles";
         var portales = new List<(string Fuente, string Inicio, Func<Distrito, object> Busqueda)>();
-        if (config.Fuentes.Contains(Fuentes.Adondevivir))
+        if (config.Usa(Fuentes.Adondevivir))
             portales.Add((Fuentes.Adondevivir, "https://www.adondevivir.com/", d => new
             {
                 distrito = d.Nombre,
                 url = $"https://www.adondevivir.com/departamentos-en-alquiler-en-{d.Slug}-{rango}.html",
                 pagina = $"https://www.adondevivir.com/departamentos-en-alquiler-en-{d.Slug}-{rango}-pagina-{{n}}.html",
             }));
-        if (config.Fuentes.Contains(Fuentes.Urbania))
+        if (config.Usa(Fuentes.Urbania))
             portales.Add((Fuentes.Urbania, "https://urbania.pe/", d =>
             {
                 var provincia = Distritos.Normalizar(d.Provincia);
@@ -158,15 +198,15 @@ public static class Buscador
                 foreach (var e in doc.RootElement.GetProperty("errores").EnumerateArray())
                     lock (errores) errores.Add($"{fuente}, {e.GetString()}");
                 foreach (var crudo in doc.RootElement.GetProperty("avisos").EnumerateArray())
-                    if (DePortal(fuente, inicio, crudo, config.TipoCambio) is { } aviso) avisos.Add(aviso);
+                    if (DeNavent(fuente, inicio, crudo, config.TipoCambio) is { } aviso) avisos.Add(aviso);
             }
         }
         catch (OperationCanceledException) { throw; }
-        catch (Exception ex) { lock (errores) errores.Add($"Portales: {ex.Message}"); }
+        catch (Exception ex) { lock (errores) errores.Add($"Adondevivir y Urbania: {ex.Message}"); }
         return avisos;
     }
 
-    static Aviso? DePortal(string fuente, string inicio, JsonElement crudo, decimal tipoCambio)
+    static Aviso? DeNavent(string fuente, string inicio, JsonElement crudo, decimal tipoCambio)
     {
         string Campo(string nombre) => crudo.GetProperty(nombre).GetString() ?? "";
         var id = Campo("id");
@@ -197,6 +237,115 @@ public static class Buscador
         };
     }
 
+    static async Task<List<Aviso>> Portal(Portal portal, Config config, List<Distrito> distritos, List<string> errores, List<string> registro, IProgress<string> progreso, CancellationToken ct)
+    {
+        var avisos = new List<Aviso>();
+        var fallas = 0;
+        try
+        {
+            await using var pestana = await Chrome.AbrirPestana("about:blank", alFrente: false, ct);
+            if (portal.Publicaciones && await Chrome.SesionFacebook(ct) != true)
+            {
+                lock (errores) errores.Add($"{portal.Nombre} necesita la sesión de Facebook en el Chrome de Depas");
+                return avisos;
+            }
+            foreach (var distrito in distritos)
+            {
+                progreso.Report($"{portal.Nombre}: {distrito.Nombre}…");
+                var primera = portal.Busqueda(distrito, config);
+                string? url = primera;
+                for (var pagina = 1; url != null && pagina <= portal.Paginas; pagina++)
+                {
+                    try
+                    {
+                        using var doc = await LeerPagina(pestana, url, portal.Enlace, portal.Publicaciones ? 5 : 0, ct);
+                        var leidos = 0;
+                        var delDistrito = 0;
+                        foreach (var crudo in doc.RootElement.GetProperty("avisos").EnumerateArray())
+                            if (DeTarjeta(portal.Nombre, crudo, config.TipoCambio, portal.Publicaciones) is { } aviso)
+                            {
+                                avisos.Add(aviso);
+                                leidos++;
+                                if (aviso.Distrito == distrito.Nombre) delDistrito++;
+                            }
+                        lock (registro) registro.Add($"{portal.Nombre} · {distrito.Nombre} · p{pagina}: {leidos} ({delDistrito} del distrito) · {doc.RootElement.GetProperty("titulo").GetString()} · {url}");
+                        // Sin nada del distrito, lo que sigue es relleno de otros lados (Properati y Mitula lo hacen).
+                        var siguiente = doc.RootElement.GetProperty("siguiente").GetString()
+                                        ?? portal.Paginar?.Replace("{url}", primera).Replace("{n}", (pagina + 1).ToString());
+                        url = delDistrito > 0 && siguiente != url ? siguiente : null;
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        if (pagina == 1) fallas++;
+                        lock (registro) registro.Add($"{portal.Nombre} · {distrito.Nombre} · p{pagina}: {ex.Message} · {url}");
+                        url = null;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { fallas = distritos.Count; lock (registro) registro.Add($"{portal.Nombre}: {ex.Message}"); }
+        if (fallas == distritos.Count && fallas > 0) lock (errores) errores.Add($"{portal.Nombre} no respondió");
+        return avisos;
+    }
+
+    /// <summary>Hay sitios que se recargan solos al abrir (Mercado Libre): si la lectura se corta, se intenta otra vez.</summary>
+    static async Task<JsonDocument> LeerPagina(Pestana pestana, string url, string enlace, int vueltas, CancellationToken ct)
+    {
+        for (var intento = 1; ; intento++)
+        {
+            try
+            {
+                await pestana.Ir(url, ct);
+                return JsonDocument.Parse(await pestana.Evaluar(Llamar("tarjetas.js", new { enlace, vueltas }), ct) ?? "{}");
+            }
+            catch (InvalidOperationException) when (intento < 2) { await Task.Delay(1500, ct); }
+        }
+    }
+
+    static readonly Regex RxLimaCallao = new(@"\b(lima|callao)\b");
+
+    /// <summary>
+    /// Arma el aviso con los textos sueltos de una tarjeta: el primer precio, la línea de ubicación («…, San Miguel, Lima»),
+    /// el título y lo que digan de dormitorios, baños y metros (también en la dirección: «departamento-2-dorm-54-m»).
+    /// En una publicación de Facebook las primeras líneas son el grupo y el autor: el aviso es el texto más largo.
+    /// </summary>
+    public static Aviso? DeTarjeta(string fuente, JsonElement crudo, decimal tipoCambio, bool publicacion = false)
+    {
+        var url = crudo.GetProperty("url").GetString()!;
+        var lineas = crudo.GetProperty("texto").GetString()!.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToArray();
+        var cuerpo = publicacion ? lineas.OrderByDescending(l => l.Length).FirstOrDefault() ?? "" : "";
+        var plano = publicacion ? cuerpo : string.Join(" ", lineas);
+        if (Texto.PrecioEn(plano, tipoCambio) is not int precio) return null;
+
+        var titulo = publicacion ? (cuerpo.Length > 90 ? cuerpo[..90] + "…" : cuerpo)
+                   : crudo.GetProperty("titulo").GetString() is { Length: > 0 } t ? t : lineas.FirstOrDefault(l => l.Length >= 15 && !Texto.EsPrecio(l)) ?? "";
+        var ubicacion = publicacion ? "" : lineas.FirstOrDefault(l => l.Length < 110 && l.Contains(',') && RxLimaCallao.IsMatch(Distritos.Normalizar(l))) ?? "";
+        var descripcion = publicacion ? cuerpo : lineas.Where(l => l.Length > 60 && l != titulo).OrderByDescending(l => l.Length).FirstOrDefault() ?? "";
+        var ruta = Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Segments[^1].Replace('-', ' ') : "";
+        var datos = $"{plano} {ruta}";
+        var ahora = DateTime.Now;
+        return new Aviso
+        {
+            Clave = $"{fuente}:{url}",
+            Fuente = fuente,
+            Url = url,
+            Titulo = titulo,
+            Descripcion = descripcion,
+            Ubicacion = ubicacion,
+            Imagen = crudo.GetProperty("imagen").GetString() ?? "",
+            Distrito = Distritos.De(ubicacion, $"{titulo}\n{descripcion}")?.Nombre,
+            Precio = precio,
+            Mantenimiento = Texto.Mantenimiento(plano),
+            Dormitorios = Texto.Dormitorios(datos),
+            Banos = Texto.Banos(datos),
+            Area = Texto.Area(plano),
+            PrimeraVez = ahora,
+            UltimaVez = ahora,
+        };
+    }
+
     /// <summary>Cada frase de «ocultar si el título dice», como palabras enteras: «mini» no oculta «ministerio».</summary>
     public static Regex[] Excluidas(Config c) =>
         c.PalabrasExcluidas().Select(p => new Regex($@"\b{Regex.Escape(p)}\b", RegexOptions.CultureInvariant)).ToArray();
@@ -211,7 +360,7 @@ public static class Buscador
 
     static bool PasaBasico(Aviso a, Config c, Regex[] excluidas)
     {
-        if (!c.Fuentes.Contains(a.Fuente)) return false;
+        if (!c.Usa(a.Fuente) && !a.TambienEn.Any(c.Usa)) return false;
         if (a.Distrito is null || !c.Distritos.Contains(a.Distrito)) return false;
         if (a.Precio is not int precio || precio < c.PrecioMin || precio > c.PrecioMax) return false;
         var titulo = Distritos.Normalizar(a.Titulo);

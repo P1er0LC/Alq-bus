@@ -7,7 +7,8 @@ public static class Fuentes
     public const string Marketplace = "Marketplace";
     public const string Adondevivir = "Adondevivir";
     public const string Urbania = "Urbania";
-    public static readonly string[] Todas = [Marketplace, Adondevivir, Urbania];
+    /// <summary>En orden de preferencia: cuando un aviso sale en varias, se muestra el de la primera.</summary>
+    public static readonly string[] Todas = [Marketplace, Adondevivir, Urbania, .. Portales.Todos.Select(p => p.Nombre)];
 }
 
 public sealed class Aviso
@@ -27,6 +28,8 @@ public sealed class Aviso
     public int? Dormitorios { get; set; }
     public int? Banos { get; set; }
     public int? Area { get; set; }
+    /// <summary>Otras fuentes donde salió el mismo aviso (los agregadores repiten los de los portales).</summary>
+    public List<string> TambienEn { get; set; } = [];
     public DateTime PrimeraVez { get; set; }
     public DateTime UltimaVez { get; set; }
     public bool Abierto { get; set; }
@@ -51,6 +54,7 @@ public sealed class Aviso
         Dormitorios = nuevo.Dormitorios ?? Dormitorios;
         Banos = nuevo.Banos ?? Banos;
         Area = nuevo.Area ?? Area;
+        TambienEn = nuevo.TambienEn;
         UltimaVez = nuevo.UltimaVez;
     }
 
@@ -85,6 +89,14 @@ public static partial class Texto
     [GeneratedRegex(@"mantenimiento[^\d\n]{0,16}(\d{2,4})", RegexOptions.IgnoreCase)]
     private static partial Regex RxMantenimiento();
 
+    /// <summary>«+ S/ 150 mant.», «incluye S/ 220 mantenimiento»: el monto antes de la palabra.</summary>
+    [GeneratedRegex(@"S/\.?\s?(\d{2,4})\s*(?:de\s+)?(?:mantenimiento|mant\b)", RegexOptions.IgnoreCase)]
+    private static partial Regex RxMantenimientoAntes();
+
+    /// <summary>Un precio en cualquier parte del texto, para las tarjetas que no lo traen en su propia línea.</summary>
+    [GeneratedRegex(@"(S/\.?|US\$|USD|\$)\s?(\d[\d.,]*)", RegexOptions.IgnoreCase)]
+    private static partial Regex RxPrecioSuelto();
+
     [GeneratedRegex(@"(\d+)\s*(?:baños?|banos?|baths?)\b", RegexOptions.IgnoreCase)]
     private static partial Regex RxBanos();
 
@@ -114,8 +126,28 @@ public static partial class Texto
         return por.Success ? int.Parse(por.Groups[1].Value) : null;
     }
 
-    public static int? Mantenimiento(string texto) =>
-        RxMantenimiento().Match(texto) is { Success: true } m && int.TryParse(m.Groups[1].Value, out var n) && n < 2000 ? n : null;
+    public static int? Mantenimiento(string texto)
+    {
+        var m = RxMantenimientoAntes().Match(texto);
+        if (!m.Success) m = RxMantenimiento().Match(texto);
+        return m.Success && int.TryParse(m.Groups[1].Value, out var n) && n < 2000 ? n : null;
+    }
+
+    /// <summary>
+    /// El primer precio del texto que no sea el mantenimiento («+ S/ 150 mant.») ni un precio por metro («17 PEN/m²»).
+    /// </summary>
+    public static int? PrecioEn(string texto, decimal tipoCambio)
+    {
+        foreach (Match m in RxPrecioSuelto().Matches(texto))
+        {
+            var despues = texto.Substring(m.Index + m.Length, Math.Min(16, texto.Length - m.Index - m.Length)).ToLowerInvariant();
+            var antes = texto.Substring(Math.Max(0, m.Index - 3), Math.Min(3, m.Index));
+            var porMetro = despues.TrimStart().StartsWith("/m²") || despues.TrimStart().StartsWith("/m2");
+            if (despues.Contains("mant") || porMetro || antes.Contains('+')) continue;
+            if (Precio(m.Value, tipoCambio) is int precio and > 0) return precio;
+        }
+        return null;
+    }
 
     public static int? Banos(string texto)
     {

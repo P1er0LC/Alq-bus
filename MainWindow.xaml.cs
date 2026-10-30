@@ -29,7 +29,7 @@ public partial class MainWindow : Window
         if (Distritos.Todos.Any(d => !d.Principal && config.Distritos.Contains(d.Nombre))) MasDistritos_Click(this, new RoutedEventArgs());
         foreach (var fuente in Fuentes.Todas)
         {
-            var chip = new ToggleButton { Content = fuente, Tag = fuente, IsChecked = config.Fuentes.Contains(fuente) };
+            var chip = new ToggleButton { Content = fuente, Tag = fuente, IsChecked = config.Usa(fuente) };
             chip.Click += Filtro_Cambio;
             FuentesPanel.Children.Add(chip);
         }
@@ -60,7 +60,7 @@ public partial class MainWindow : Window
     {
         config.Distritos = DistritosPrincipales.Children.OfType<ToggleButton>().Concat(DistritosOtros.Children.OfType<ToggleButton>())
             .Where(b => b.IsChecked == true).Select(b => (string)b.Tag).ToList();
-        config.Fuentes = FuentesPanel.Children.OfType<ToggleButton>().Where(b => b.IsChecked == true).Select(b => (string)b.Tag).ToList();
+        config.FuentesApagadas = FuentesPanel.Children.OfType<ToggleButton>().Where(b => b.IsChecked != true).Select(b => (string)b.Tag).ToList();
         if (int.TryParse(PrecioMin.Text.Trim(), out var min)) config.PrecioMin = min;
         if (int.TryParse(PrecioMax.Text.Trim(), out var max)) config.PrecioMax = max;
         config.SinDormitorios = SinDormitorios.IsChecked == true;
@@ -143,7 +143,7 @@ public partial class MainWindow : Window
         if (busqueda != null) { busqueda.Cancel(); return; }
         LeerFiltros();
         Almacen.Guardar(config);
-        if (config.Distritos.Count == 0 || config.Fuentes.Count == 0)
+        if (config.Distritos.Count == 0 || !Fuentes.Todas.Any(config.Usa))
         {
             Estado.Text = "Elige al menos un distrito y una fuente.";
             return;

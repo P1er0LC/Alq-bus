@@ -24,6 +24,13 @@ public partial class App : Application
         var args = e.Args;
         string? Valor(string nombre) => Array.IndexOf(args, nombre) is var i and >= 0 && i + 1 < args.Length ? args[i + 1] : null;
 
+        if (Valor("--sondear") is { } sondeo)
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Shutdown(await Sondear(sondeo, Valor("--js"), Valor("--salida"), Valor("--js2")));
+            return;
+        }
+
         if (args.Contains("--buscar"))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -74,7 +81,8 @@ public partial class App : Application
                     porDistrito = r.Avisos.GroupBy(a => a.Distrito ?? "(otro)").ToDictionary(g => g.Key, g => g.Count()),
                     r.Errores,
                     r.SesionFacebook,
-                    avisos = r.Avisos.Select(a => new { pasa = Buscador.Pasa(a, config, excluidas), a.Fuente, a.Distrito, a.Precio, a.Dormitorios, a.Banos, a.Area, a.Mantenimiento, a.Titulo, a.Ubicacion, a.Url, a.Imagen, a.Descripcion }),
+                    r.Registro,
+                    avisos = r.Avisos.Select(a => new { pasa = Buscador.Pasa(a, config, excluidas), a.Fuente, a.TambienEn, a.Distrito, a.Precio, a.Dormitorios, a.Banos, a.Area, a.Mantenimiento, a.Titulo, a.Ubicacion, a.Url, a.Imagen, a.Descripcion }),
                 };
                 File.WriteAllText(salida, JsonSerializer.Serialize(informe, new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
             }
@@ -83,6 +91,40 @@ public partial class App : Application
         catch (Exception ex)
         {
             if (salida != null) File.WriteAllText(salida, JsonSerializer.Serialize(new { error = ex.ToString(), pasos }));
+            return 1;
+        }
+        finally
+        {
+            if (Environment.GetEnvironmentVariable("DEPAS_OCULTO") == "1") await Chrome.Cerrar();
+        }
+    }
+
+    /// <summary>
+    /// Para estudiar un sitio nuevo desde el Chrome de Depas: abre la url, espera y corre el JS (una función async).
+    /// Con --js2, después espera a que la página navegue (si el primer JS hizo clic en algo) y corre el segundo.
+    /// </summary>
+    static async Task<int> Sondear(string url, string? js, string? salida, string? js2)
+    {
+        try
+        {
+            await using var pestana = await Chrome.AbrirPestana("about:blank", alFrente: false, CancellationToken.None);
+            await pestana.Ir(url, CancellationToken.None);
+            await Task.Delay(3000);
+            var codigo = js != null ? File.ReadAllText(js) : "async () => JSON.stringify({ url: location.href, titulo: document.title, texto: document.body.innerText.slice(0, 3000) })";
+            string? resultado;
+            try { resultado = await pestana.Evaluar($"({codigo.Trim()})()", CancellationToken.None); }
+            catch (InvalidOperationException ex) when (js2 != null) { resultado = ex.Message; }
+            if (js2 != null)
+            {
+                await Task.Delay(6000);
+                resultado = $"[{JsonSerializer.Serialize(resultado)}, {await pestana.Evaluar($"({File.ReadAllText(js2).Trim()})()", CancellationToken.None)}]";
+            }
+            if (salida != null) File.WriteAllText(salida, resultado ?? "null");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            if (salida != null) File.WriteAllText(salida, JsonSerializer.Serialize(new { error = ex.ToString() }));
             return 1;
         }
         finally
