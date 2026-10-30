@@ -1,0 +1,148 @@
+<Window x:Class="Depas.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Depas" Width="1240" Height="820" MinWidth="960" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Fondo}" Foreground="{StaticResource Texto}"
+        FontFamily="{DynamicResource Cuerpo}" UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+    <Grid Background="{StaticResource Fondo}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="320"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Filtros -->
+        <Border Background="{StaticResource FondoAlto}" BorderBrush="{StaticResource Linea}" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Bottom" Margin="22,14,22,20">
+                    <Button x:Name="BotonBuscar" Style="{StaticResource Primario}" Content="Buscar" Click="Buscar_Click"/>
+                    <Grid Margin="0,12,0,0">
+                        <TextBlock x:Name="Sesion" FontFamily="{DynamicResource Mono}" FontSize="11" Foreground="{StaticResource TextoSuave}"
+                                   TextWrapping="Wrap" Margin="0,0,8,0"/>
+                    </Grid>
+                    <Button x:Name="BotonFacebook" Style="{StaticResource Enlace}" Content="→ abrir Facebook en el Chrome de Depas"
+                            HorizontalAlignment="Left" Margin="0,4,0,0" Click="Facebook_Click"/>
+                </StackPanel>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="22,24,22,8">
+                        <TextBlock Text="Depas" FontSize="26" FontWeight="SemiBold"/>
+                        <TextBlock Text="alquileres en Lima y Callao" FontFamily="{DynamicResource Mono}" FontSize="11"
+                                   Foreground="{StaticResource TextoSuave}" Margin="0,4,0,0"/>
+
+                        <TextBlock Style="{StaticResource Etiqueta}" Text="DISTRITOS"/>
+                        <WrapPanel x:Name="DistritosPrincipales"/>
+                        <Button x:Name="BotonMasDistritos" Style="{StaticResource Enlace}" Content="+ más distritos" HorizontalAlignment="Left"
+                                Click="MasDistritos_Click"/>
+                        <WrapPanel x:Name="DistritosOtros" Visibility="Collapsed" Margin="0,8,0,0"/>
+
+                        <TextBlock Style="{StaticResource Etiqueta}" Text="PRECIO EN SOLES"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition/>
+                                <ColumnDefinition Width="28"/>
+                                <ColumnDefinition/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="PrecioMin" FontFamily="{DynamicResource Mono}" TextChanged="Filtro_Cambio"/>
+                            <TextBlock Grid.Column="1" Text="a" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource TextoSuave}"/>
+                            <TextBox x:Name="PrecioMax" Grid.Column="2" FontFamily="{DynamicResource Mono}" TextChanged="Filtro_Cambio"/>
+                        </Grid>
+
+                        <TextBlock Style="{StaticResource Etiqueta}" Text="DORMITORIOS"/>
+                        <WrapPanel x:Name="Dormitorios">
+                            <ToggleButton Content="1 o más" Tag="1" Click="Dormitorios_Click"/>
+                            <ToggleButton Content="2 o más" Tag="2" Click="Dormitorios_Click"/>
+                            <ToggleButton Content="3 o más" Tag="3" Click="Dormitorios_Click"/>
+                        </WrapPanel>
+                        <CheckBox x:Name="SinDormitorios" Content="Incluir los que no dicen cuántos" Margin="0,4,0,0" Click="Filtro_Cambio"/>
+
+                        <TextBlock Style="{StaticResource Etiqueta}" Text="FUENTES"/>
+                        <WrapPanel x:Name="FuentesPanel"/>
+
+                        <TextBlock Style="{StaticResource Etiqueta}" Text="OCULTAR SI EL TÍTULO DICE"/>
+                        <TextBox x:Name="Excluir" TextWrapping="Wrap" Height="104" VerticalScrollBarVisibility="Auto"
+                                 FontSize="12" TextChanged="Filtro_Cambio"/>
+
+                        <CheckBox x:Name="MostrarDescartados" Content="Mostrar los descartados" Margin="0,14,0,0" Click="Filtro_Cambio"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- Resultados -->
+        <DockPanel Grid.Column="1">
+            <Grid DockPanel.Dock="Top" Margin="28,24,28,14">
+                <StackPanel>
+                    <TextBlock x:Name="Resumen" FontSize="20" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="Estado" FontFamily="{DynamicResource Mono}" FontSize="11" Foreground="{StaticResource TextoSuave}"
+                               Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
+                    <WrapPanel x:Name="Vistas">
+                        <ToggleButton Content="Todos" Tag="Todos" Click="Vista_Click"/>
+                        <ToggleButton Content="Nuevos" Tag="Nuevos" Click="Vista_Click"/>
+                        <ToggleButton Content="Favoritos" Tag="Favoritos" Click="Vista_Click"/>
+                    </WrapPanel>
+                    <Border Width="1" Background="{StaticResource Linea}" Margin="8,2,14,8"/>
+                    <WrapPanel x:Name="Ordenes">
+                        <ToggleButton Content="Recientes" Tag="Recientes" Click="Orden_Click"/>
+                        <ToggleButton Content="Más baratos" Tag="Precio" Click="Orden_Click"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Grid>
+
+            <Grid>
+                <ListBox x:Name="Lista" Background="Transparent" BorderThickness="0" Padding="28,0,20,20"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.ScrollUnit="Pixel"
+                         MouseDoubleClick="Lista_DobleClic">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Height="150" Opacity="{Binding Opacidad}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Background="{StaticResource Fondo}" ClipToBounds="True">
+                                    <Image Source="{Binding Miniatura}" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                </Border>
+                                <Border Background="{StaticResource Nuevo}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8"
+                                        Padding="6,2" CornerRadius="2" Visibility="{Binding VerNuevo}">
+                                    <TextBlock Text="NUEVO" FontFamily="{DynamicResource Mono}" FontSize="10" FontWeight="Bold" Foreground="{StaticResource Fondo}"/>
+                                </Border>
+
+                                <StackPanel Grid.Column="1" Margin="18,14,12,12">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Precio}" FontFamily="{DynamicResource Mono}" FontSize="19" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Extra}" FontFamily="{DynamicResource Mono}" FontSize="11" Foreground="{StaticResource TextoSuave}"
+                                                   VerticalAlignment="Center" Margin="12,2,0,0"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding Titulo}" FontSize="14" FontWeight="SemiBold" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                        <TextBlock Text="{Binding Rasgos}" FontFamily="{DynamicResource Mono}" FontSize="11.5"/>
+                                        <TextBlock Text="{Binding Alerta}" Visibility="{Binding VerAlerta}" FontFamily="{DynamicResource Mono}" FontSize="11"
+                                                   Foreground="{StaticResource Aviso}" Margin="16,0,0,0" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding Descripcion}" Visibility="{Binding VerDescripcion}" FontSize="12" Foreground="{StaticResource TextoSuave}"
+                                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="34" Margin="0,6,0,0"/>
+                                    <TextBlock Text="{Binding Lugar}" FontFamily="{DynamicResource Mono}" FontSize="10.5" Foreground="{StaticResource TextoSuave}" Margin="0,6,0,0"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2" Margin="0,14,18,12" HorizontalAlignment="Right">
+                                    <Button Content="Abrir" Width="104" Click="Abrir_Click"/>
+                                    <Button Style="{StaticResource Enlace}" Content="{Binding Estrella}" HorizontalAlignment="Left" Margin="2,12,0,0" Click="Favorito_Click"/>
+                                    <Button Style="{StaticResource Enlace}" Content="{Binding TextoDescartar}" HorizontalAlignment="Left" Margin="2,6,0,0" Click="Descartar_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TextBlock x:Name="Vacio" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                           Foreground="{StaticResource TextoSuave}" FontSize="13" LineHeight="22" MaxWidth="420" TextWrapping="Wrap"/>
+            </Grid>
+        </DockPanel>
+    </Grid>
+</Window>
